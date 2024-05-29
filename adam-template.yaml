@@ -1,0 +1,157 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create a VPC with public subnets, security groups, ALB, ASG, S3 bucket, RDS, and IAM roles in the us-west-2 region.
+
+Parameters:
+  Region:
+    Type: String
+    Default: us-west-2
+    AllowedValues:
+      - us-west-2
+    Description: The AWS region where the stack will be deployed.
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances.
+
+  InstanceType:
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t3.micro
+      - t3.small
+      - t3.medium
+    Description: EC2 instance type for the launch template.
+
+Resources:
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: MyVPC
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: PublicSubnet1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: PublicSubnet2
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: MyInternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: PublicRouteTable
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  SubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable access to RDS instance
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+
+  MyDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS instance
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: MyDBSubnetGroup
+
+  AdamDatabase:
+    Type: 'AWS::RDS::DBInstance'
+    Properties: 
+      DBInstanceIdentifier: 'adam-database'
+      AllocatedStorage: 20
+      StorageType: 'gp2'
+      Engine: 'mysql'
+      EngineVersion: '5.7'
+      DBInstanceClass: 'db.t3.micro'
+      MasterUsername: 'admin'
+      MasterUserPassword: 'Metro123'
+      DBSubnetGroupName: !Ref MyDBSubnetGroup
+      VPCSecurityGroups: 
+        - !Ref RDSSecurityGroup
+
+Outputs:
+  VPCId:
+    Description: "VPC Id"
+    Value: !Ref MyVPC
+
+  PublicSubnet1Id:
+    Description: "Public Subnet 1 Id"
+    Value: !Ref PublicSubnet1
+
+  PublicSubnet2Id:
+    Description: "Public Subnet 2 Id"
+    Value: !Ref PublicSubnet2
+
+  RDSSecurityGroupId:
+    Description: "RDS Security Group Id"
+    Value: !Ref RDSSecurityGroup
+
+  DBInstanceEndpoint:
+    Description: "RDS DB Instance Endpoint"
+    Value: !GetAtt AdamDatabase.Endpoint.Address
